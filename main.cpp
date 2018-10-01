@@ -15,34 +15,34 @@ using namespace std;
 mutex fileQueueLock;
 mutex countQueueLock;
 
+/* Reads the initial file to get the list of file names */
 queue<string> openFile(string fileName)
 {
     string line;
     queue<string> files;
-    try
+    ifstream myfile(fileName);
+    if (myfile)
     {
-        ifstream myfile (fileName);
-        myfile.exceptions ( );
         while (!myfile.eof())
         {
             getline(myfile,line);
             files.push(line);
         }
         myfile.close();
-        return files;
+    } else {
+        cout << "File: " << fileName << " doesn't exist." << endl;
     }
-    catch(exception const& e)
-    {
-        cout << "Could not open file" << endl;
-    }
+    return files;
 }
+
+/* Takes in a file and reads the lines for that file */
 string readFileContents(string fileName)
 {
     string line;
-    try
+    ifstream myfile (fileName);
+    cout << fileName << endl;
+    if (myfile)
     {
-        ifstream myfile (fileName);
-        myfile.exceptions ( );
         myfile.seekg(0, std::ios::end);   
         line.reserve(myfile.tellg());
         myfile.seekg(0, std::ios::beg);
@@ -51,10 +51,9 @@ string readFileContents(string fileName)
                     std::istreambuf_iterator<char>());
         myfile.close();
         return line;
-    }
-    catch(exception const& e)
-    {
-        cout << "Could not open file" << endl;
+    } else {
+        cout << "File: " << fileName << " doesn't exist." << endl;
+        exit(1);
     }
 }
 
@@ -88,9 +87,12 @@ void map(queue<string>& fileQueue, queue<int>& countQueue, string word)
 
     //Read the file contents
     lines = readFileContents(topFile);
-    //Get a count of the word occurence from the file
+
+    //Lowercase the lines of the file and the word to find
     std::transform(lines.begin(), lines.end(), lines.begin(), ::tolower);
     std::transform(word.begin(), word.end(), word.begin(), ::tolower);
+
+    //Get a count of the word occurence from the file
     int counter = countWordOccurence(lines, word);
 
     countQueueLock.lock();
@@ -100,58 +102,68 @@ void map(queue<string>& fileQueue, queue<int>& countQueue, string word)
 
 void reduce(queue<int>& countQueue)
 {
-    int first = 0;
-    int second = 0;
+    int firstNumber = 0;
+    int secondNumber = 0;
     if (countQueue.size() >= 2)
     {
         countQueueLock.lock();
-        first = countQueue.front();
+        firstNumber = countQueue.front();
         countQueue.pop();
-        second = countQueue.front();
+        secondNumber = countQueue.front();
         countQueue.pop();
         countQueueLock.unlock();
 
-        int sum = first + second;
+        //Add the sum of the word count
+        int sum = firstNumber + secondNumber;
 
+        //Push the sum back onto the queue
         countQueueLock.lock();
         countQueue.push(sum);
         countQueueLock.unlock();
     }
 }
 
-
 int main() 
 {
     Configuration config;
-
+    //Queue of files and the word occurrence of the files
     queue<string> fileQueue;
     queue<int> countQueue;
     
     int fileQueueSize = 0;
     int countQueueSize = 0;
+
+    //A vector of threads containing each of the mapper threads and reducer threads
     vector<thread> mapperThreads;
     vector<thread> reducerThreads;
+
     fileQueue = openFile(config.fileDataName);
     fileQueueSize = fileQueue.size();
-    for(int i = 0; i < fileQueueSize; i++)
-    {
-        mapperThreads.push_back(thread(map, ref(fileQueue), ref(countQueue), config.wordToFind));
+    if (fileQueueSize > 0) {
+        for(int i = 0; i < fileQueueSize; i++)
+        {
+            mapperThreads.push_back(thread(map, ref(fileQueue), ref(countQueue), config.wordToFind));
+        }
+
+        //Wait for the mapper threads to finish
+        for(auto& map : mapperThreads)
+            map.join();
+        //Get the accurate size of the countQueue
+        countQueueSize = countQueue.size();
+
+        for(int i = 0; i < countQueueSize-1; i++)
+        {
+            reducerThreads.push_back(thread(reduce, ref(countQueue)));
+        }
+        //Wait for the reducer threads to finish
+        for(auto& reduce : reducerThreads)
+            reduce.join();
+
+        cout << "The word '"<< config.wordToFind << "' was found: " << countQueue.front() << " times" << endl;
+    } else {
+        cout << "Not enough files." << endl;
     }
-
-    for(auto& map : mapperThreads)
-        map.join();
-
-    countQueueSize = countQueue.size();
-
-    for(int i = 0; i < countQueueSize-1; i++)
-    {
-        reducerThreads.push_back(thread(reduce, ref(countQueue)));
-    }
-
-    for(auto& reduce : reducerThreads)
-        reduce.join();
-
-    cout << "The word '"<< config.wordToFind << "' was found: " << countQueue.front() << " times" << endl;
+    
 
     return 0;
 }
