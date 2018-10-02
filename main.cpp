@@ -5,7 +5,6 @@
 #include <vector>
 #include <streambuf>
 #include <queue>
-#include "mapper.h"
 #include <mutex>
 #include <algorithm>
 #include <cctype>
@@ -40,7 +39,6 @@ string readFileContents(string fileName)
 {
     string line;
     ifstream myfile (fileName);
-    cout << fileName << endl;
     if (myfile)
     {
         myfile.seekg(0, std::ios::end);   
